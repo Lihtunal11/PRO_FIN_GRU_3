@@ -43,9 +43,8 @@ window.loadPIDSVG = async function(filename) {
       svgEl.style.height = '100%';
       svgEl.style.maxHeight = 'calc(100vh - 200px)';
       svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-      // Añadir pan/zoom básico con rueda del ratón y drag
+      _normalizeSVGColors(svgEl);
       _addSVGPanZoom(svgEl);
-      // Detectar y enlazar hotspots con variables
       _wireSVGHotspots(svgEl);
     }
 
