@@ -423,8 +423,11 @@
       <div class="panel-action">⤢</div>
     </div>
     <div id="pidContainer" style="padding:4px;overflow:hidden;min-height:340px;position:relative;background:var(--bg-deep)">
-      <!-- SVG o canvas cargado dinámicamente por pid-manager.js -->
-      <canvas id="pidCanvas" width="900" height="340" style="width:100%;border-radius:8px;background:var(--bg-deep)"></canvas>
+      <div id="pidEmptyState" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;min-height:332px;color:var(--text-secondary);text-align:center;padding:24px">
+        <div style="font-size:48px;margin-bottom:12px;opacity:.6">📐</div>
+        <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px">Visualizador P&ID vacío</div>
+        <div style="font-size:12px;max-width:420px;line-height:1.5">Sube un archivo <b>.svg</b> con el botón "Subir P&ID" o arrástralo sobre este panel para visualizarlo.</div>
+      </div>
     </div>
   </div>
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">

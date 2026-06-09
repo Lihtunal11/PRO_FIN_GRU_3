@@ -43,9 +43,8 @@ window.loadPIDSVG = async function(filename) {
       svgEl.style.height = '100%';
       svgEl.style.maxHeight = 'calc(100vh - 200px)';
       svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-      // Añadir pan/zoom básico con rueda del ratón y drag
+      _normalizeSVGColors(svgEl);
       _addSVGPanZoom(svgEl);
-      // Detectar y enlazar hotspots con variables
       _wireSVGHotspots(svgEl);
     }
 
@@ -68,6 +67,47 @@ window.loadPIDSVG = async function(filename) {
     window.showNotif(`No se pudo cargar SVG. Mostrando P&ID procedimental. (${err.message})`, 'warning');
   }
 };
+
+// ─── NORMALIZAR COLORES DEL SVG (negros → blanco para fondo oscuro) ──
+function _normalizeSVGColors(svg) {
+  if (!svg) return;
+  const BLACKS = new Set(['#000','#000000','black','rgb(0,0,0)','rgb(0, 0, 0)']);
+  const isBlack = (v) => v && BLACKS.has(String(v).trim().toLowerCase());
+
+  // Atributos directos stroke/fill
+  svg.querySelectorAll('[stroke],[fill]').forEach(el => {
+    const s = el.getAttribute('stroke');
+    if (isBlack(s)) el.setAttribute('stroke', '#ffffff');
+    const f = el.getAttribute('fill');
+    if (isBlack(f)) el.setAttribute('fill', '#ffffff');
+  });
+
+  // Estilos inline style="stroke:#000;fill:#000"
+  svg.querySelectorAll('[style]').forEach(el => {
+    let st = el.getAttribute('style');
+    if (!st) return;
+    st = st.replace(/(stroke|fill)\s*:\s*(#000(?:000)?|black|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\))/gi, '$1:#ffffff');
+    el.setAttribute('style', st);
+  });
+
+  // Elementos sin stroke/fill explícito heredan negro por defecto en muchos exports.
+  // Forzamos color por defecto del SVG raíz a blanco.
+  const rootStroke = svg.getAttribute('stroke');
+  if (!rootStroke || isBlack(rootStroke)) svg.setAttribute('stroke', '#ffffff');
+  // Mantener fill="none" como por defecto para no rellenar áreas (estilo plano P&ID)
+  if (!svg.getAttribute('fill')) svg.setAttribute('fill', 'none');
+
+  // Bloques <style> internos: reemplazar negros también
+  svg.querySelectorAll('style').forEach(tag => {
+    tag.textContent = tag.textContent.replace(
+      /(stroke|fill)\s*:\s*(#000(?:000)?|black|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\))/gi,
+      '$1:#ffffff'
+    );
+  });
+}
+window._normalizeSVGColors = _normalizeSVGColors;
+
+
 
 // ─── PAN/ZOOM BÁSICO PARA SVG ────────────────────────────────────
 function _addSVGPanZoom(svg) {
@@ -172,6 +212,7 @@ window.loadPIDFromLocalFile = function(file) {
         svgEl.style.height = '100%';
         svgEl.style.maxHeight = 'calc(100vh - 200px)';
         svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        _normalizeSVGColors(svgEl);
         _addSVGPanZoom(svgEl);
         _wireSVGHotspots(svgEl);
       } else {
@@ -268,19 +309,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Intento opcional de listar SVGs del backend (si existe)
-  try {
-    const svgs = await window.listPIDSVGs();
-    if (svgs.length > 0) {
-      const tabObserver = new MutationObserver(() => {
-        if (tab.style.display !== 'none') {
-          window.loadPIDSVG(svgs[0].name);
-          tabObserver.disconnect();
-        }
-      });
-      tabObserver.observe(tab, { attributes: true, attributeFilter: ['style'] });
-    }
-  } catch {}
+  // Visualizador inicia vacío — el usuario sube su propio archivo manualmente.
 });
 
 // ─── HOTSPOTS: vincular elementos SVG con variables ───────────────
