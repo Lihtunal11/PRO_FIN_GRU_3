@@ -109,36 +109,240 @@ window._normalizeSVGColors = _normalizeSVGColors;
 
 
 
-// ─── PAN/ZOOM BÁSICO PARA SVG ────────────────────────────────────
+// ─── PAN/ZOOM/ROTACIÓN PARA SVG ──────────────────────────────────
 function _addSVGPanZoom(svg) {
-  let scale = 1, panX = 0, panY = 0, isDragging = false, lastX = 0, lastY = 0;
-  
+  const state = { scale: 1, panX: 0, panY: 0, rotation: 0 };
+  let isDragging = false, lastX = 0, lastY = 0;
+
   svg.style.cursor = 'grab';
-  svg.style.transition = 'transform 0.05s ease';
+  svg.style.transition = 'transform 0.08s ease';
+  svg.style.transformOrigin = 'center center';
 
   function apply() {
-    svg.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+    svg.style.transform =
+      `translate(${state.panX}px, ${state.panY}px) rotate(${state.rotation}deg) scale(${state.scale})`;
   }
 
   svg.addEventListener('wheel', e => {
+    if (window._pidDrawMode) return;
     e.preventDefault();
-    scale = Math.max(0.2, Math.min(5, scale * (e.deltaY > 0 ? 0.9 : 1.1)));
+    state.scale = Math.max(0.2, Math.min(8, state.scale * (e.deltaY > 0 ? 0.9 : 1.1)));
     apply();
   }, { passive: false });
 
-  svg.addEventListener('mousedown', e => { isDragging = true; lastX = e.clientX; lastY = e.clientY; svg.style.cursor = 'grabbing'; });
+  svg.addEventListener('mousedown', e => {
+    if (window._pidDrawMode) return;
+    isDragging = true; lastX = e.clientX; lastY = e.clientY;
+    svg.style.cursor = 'grabbing';
+  });
   window.addEventListener('mouseup', () => { isDragging = false; svg.style.cursor = 'grab'; });
   window.addEventListener('mousemove', e => {
     if (!isDragging) return;
-    panX += e.clientX - lastX; panY += e.clientY - lastY;
+    state.panX += e.clientX - lastX; state.panY += e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
     apply();
   });
 
-  // Botón reset zoom
+  // Exponer estado para que la toolbar pueda manipularlo
+  window._pidView = {
+    state,
+    apply,
+    reset() { state.scale = 1; state.panX = 0; state.panY = 0; state.rotation = 0; apply(); },
+    zoom(factor) { state.scale = Math.max(0.2, Math.min(8, state.scale * factor)); apply(); },
+    rotate(deg)  { state.rotation = (state.rotation + deg) % 360; apply(); },
+    setRotation(deg) { state.rotation = deg % 360; apply(); },
+  };
+
   const resetBtn = document.getElementById('pidResetZoom');
-  if (resetBtn) resetBtn.addEventListener('click', () => { scale=1;panX=0;panY=0;apply(); });
+  if (resetBtn) resetBtn.onclick = () => window._pidView.reset();
 }
+
+// ─── CAPA DE ANOTACIÓN (dibujo libre sobre el P&ID) ──────────────
+function _ensureAnnotationLayer() {
+  const container = document.getElementById('pidContainer');
+  if (!container) return null;
+  let layer = container.querySelector('#pidAnnotationLayer');
+  if (layer) return layer;
+  layer = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  layer.id = 'pidAnnotationLayer';
+  layer.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  Object.assign(layer.style, {
+    position: 'absolute', inset: '0', width: '100%', height: '100%',
+    pointerEvents: 'none', zIndex: '5'
+  });
+  container.appendChild(layer);
+
+  let drawing = false, currentPath = null, points = [];
+  const getXY = (e) => {
+    const r = layer.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+
+  layer.addEventListener('pointerdown', e => {
+    if (!window._pidDrawMode) return;
+    e.preventDefault();
+    drawing = true;
+    points = [getXY(e)];
+    currentPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    currentPath.setAttribute('fill', 'none');
+    currentPath.setAttribute('stroke', window._pidDrawColor || '#22d3ee');
+    currentPath.setAttribute('stroke-width', String(window._pidDrawWidth || 2.5));
+    currentPath.setAttribute('stroke-linecap', 'round');
+    currentPath.setAttribute('stroke-linejoin', 'round');
+    currentPath.setAttribute('data-annotation', '1');
+    currentPath.setAttribute('d', `M ${points[0].x} ${points[0].y}`);
+    layer.appendChild(currentPath);
+    layer.setPointerCapture(e.pointerId);
+  });
+  layer.addEventListener('pointermove', e => {
+    if (!drawing || !currentPath) return;
+    const p = getXY(e);
+    points.push(p);
+    currentPath.setAttribute('d', currentPath.getAttribute('d') + ` L ${p.x} ${p.y}`);
+  });
+  const endStroke = () => { drawing = false; currentPath = null; };
+  layer.addEventListener('pointerup', endStroke);
+  layer.addEventListener('pointercancel', endStroke);
+  layer.addEventListener('pointerleave', endStroke);
+
+  return layer;
+}
+
+// ─── TOOLBAR DE HERRAMIENTAS ─────────────────────────────────────
+function _setupPIDTools() {
+  const toolbar = document.getElementById('pidToolbar');
+  if (!toolbar || document.getElementById('pidToolsGroup')) return;
+
+  window._pidDrawMode  = false;
+  window._pidDrawColor = '#22d3ee';
+  window._pidDrawWidth = 2.5;
+
+  const group = document.createElement('div');
+  group.id = 'pidToolsGroup';
+  group.style.cssText = 'display:flex;align-items:center;gap:4px;margin-right:8px;padding:2px 6px;border:1px solid var(--border-default);border-radius:6px;background:rgba(255,255,255,0.02)';
+
+  const mkBtn = (title, html, onClick) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-sm';
+    b.title = title;
+    b.innerHTML = html;
+    b.style.cssText = 'border:none;background:transparent;color:var(--text-secondary);font-size:13px;padding:4px 8px;line-height:1;cursor:pointer;border-radius:4px';
+    b.onmouseenter = () => b.style.background = 'rgba(255,255,255,0.06)';
+    b.onmouseleave = () => { if (!b.dataset.active) b.style.background = 'transparent'; };
+    b.onclick = onClick;
+    return b;
+  };
+
+  const needView = () => {
+    if (!window._pidView) {
+      window.showNotif?.('Carga primero un archivo P&ID', 'warning');
+      return false;
+    }
+    return true;
+  };
+
+  // Zoom
+  group.appendChild(mkBtn('Acercar (zoom +)', '🔍+', () => needView() && window._pidView.zoom(1.2)));
+  group.appendChild(mkBtn('Alejar (zoom -)', '🔍−', () => needView() && window._pidView.zoom(1/1.2)));
+  group.appendChild(mkBtn('Ajustar (reset zoom y rotación)', '⛶', () => needView() && window._pidView.reset()));
+
+  // Rotación
+  group.appendChild(mkBtn('Rotar 90° antihorario', '⟲', () => needView() && window._pidView.rotate(-90)));
+  group.appendChild(mkBtn('Rotar 90° horario',     '⟳', () => needView() && window._pidView.rotate(90)));
+  group.appendChild(mkBtn('Orientación horizontal', '▭', () => needView() && window._pidView.setRotation(0)));
+  group.appendChild(mkBtn('Orientación vertical',   '▯', () => needView() && window._pidView.setRotation(90)));
+
+  // Separador
+  const sep = document.createElement('span');
+  sep.style.cssText = 'width:1px;height:18px;background:var(--border-default);margin:0 4px';
+  group.appendChild(sep);
+
+  // Dibujo / Rayado
+  const drawBtn = mkBtn('Modo dibujo (rayar sobre el plano)', '✏️', () => {
+    window._pidDrawMode = !window._pidDrawMode;
+    const layer = _ensureAnnotationLayer();
+    if (layer) layer.style.pointerEvents = window._pidDrawMode ? 'auto' : 'none';
+    if (window._pidDrawMode) {
+      drawBtn.dataset.active = '1';
+      drawBtn.style.background = 'rgba(34,211,238,0.18)';
+      drawBtn.style.color = 'var(--accent-cyan,#22d3ee)';
+    } else {
+      delete drawBtn.dataset.active;
+      drawBtn.style.background = 'transparent';
+      drawBtn.style.color = 'var(--text-secondary)';
+    }
+  });
+  group.appendChild(drawBtn);
+
+  // Selector de color
+  const colorInput = document.createElement('input');
+  colorInput.type = 'color';
+  colorInput.value = window._pidDrawColor;
+  colorInput.title = 'Color del trazo';
+  colorInput.style.cssText = 'width:24px;height:24px;border:1px solid var(--border-default);border-radius:4px;background:transparent;cursor:pointer;padding:0';
+  colorInput.oninput = e => { window._pidDrawColor = e.target.value; };
+  group.appendChild(colorInput);
+
+  // Grosor del trazo
+  const widthInput = document.createElement('input');
+  widthInput.type = 'range'; widthInput.min = '1'; widthInput.max = '12'; widthInput.step = '0.5';
+  widthInput.value = String(window._pidDrawWidth);
+  widthInput.title = 'Grosor del trazo';
+  widthInput.style.cssText = 'width:64px;cursor:pointer';
+  widthInput.oninput = e => { window._pidDrawWidth = parseFloat(e.target.value); };
+  group.appendChild(widthInput);
+
+  // Deshacer último trazo
+  group.appendChild(mkBtn('Deshacer último trazo', '↶', () => {
+    const layer = document.getElementById('pidAnnotationLayer');
+    if (!layer) return;
+    const last = layer.querySelector('path[data-annotation]:last-of-type');
+    if (last) last.remove();
+  }));
+
+  // Borrar todo
+  group.appendChild(mkBtn('Borrar todas las anotaciones', '🗑', () => {
+    const layer = document.getElementById('pidAnnotationLayer');
+    if (layer) layer.innerHTML = '';
+  }));
+
+  // Descargar SVG con anotaciones
+  group.appendChild(mkBtn('Descargar SVG con anotaciones', '⬇', () => {
+    const container = document.getElementById('pidContainer');
+    const baseSvg = container?.querySelector('svg:not(#pidAnnotationLayer)');
+    if (!baseSvg) { window.showNotif?.('No hay P&ID cargado', 'warning'); return; }
+    const clone = baseSvg.cloneNode(true);
+    clone.style.transform = '';
+    const layer = document.getElementById('pidAnnotationLayer');
+    if (layer && layer.children.length) {
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      g.setAttribute('data-annotations', '1');
+      Array.from(layer.children).forEach(c => g.appendChild(c.cloneNode(true)));
+      clone.appendChild(g);
+    }
+    const xml = new XMLSerializer().serializeToString(clone);
+    const blob = new Blob([xml], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (window._pidCurrentFile || 'pid') + '-anotado.svg';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }));
+
+  // Pantalla completa
+  group.appendChild(mkBtn('Pantalla completa', '⛶⛶', () => {
+    const container = document.getElementById('pidContainer');
+    if (!container) return;
+    if (document.fullscreenElement) document.exitFullscreen();
+    else container.requestFullscreen?.();
+  }));
+
+  toolbar.insertBefore(group, document.getElementById('pidResetZoom') || toolbar.lastElementChild);
+}
+window._setupPIDTools = _setupPIDTools;
+
 
 // ─── MODAL DE SELECCIÓN ──────────────────────────────────────────
 window.openPIDModal = async function() {
@@ -308,6 +512,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     }
   }
+
+  // Herramientas del visualizador (zoom, rotar, dibujar, descargar, etc.)
+  _setupPIDTools();
 
   // Visualizador inicia vacío — el usuario sube su propio archivo manualmente.
 });
