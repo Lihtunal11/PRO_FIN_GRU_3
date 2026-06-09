@@ -309,19 +309,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Intento opcional de listar SVGs del backend (si existe)
-  try {
-    const svgs = await window.listPIDSVGs();
-    if (svgs.length > 0) {
-      const tabObserver = new MutationObserver(() => {
-        if (tab.style.display !== 'none') {
-          window.loadPIDSVG(svgs[0].name);
-          tabObserver.disconnect();
-        }
-      });
-      tabObserver.observe(tab, { attributes: true, attributeFilter: ['style'] });
-    }
-  } catch {}
+  // Visualizador inicia vacío — el usuario sube su propio archivo manualmente.
 });
 
 // ─── HOTSPOTS: vincular elementos SVG con variables ───────────────
