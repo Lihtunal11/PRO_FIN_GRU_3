@@ -513,6 +513,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // Herramientas del visualizador (zoom, rotar, dibujar, descargar, etc.)
+  _setupPIDTools();
+
   // Visualizador inicia vacío — el usuario sube su propio archivo manualmente.
 });
 
