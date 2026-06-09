@@ -212,6 +212,7 @@ window.loadPIDFromLocalFile = function(file) {
         svgEl.style.height = '100%';
         svgEl.style.maxHeight = 'calc(100vh - 200px)';
         svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        _normalizeSVGColors(svgEl);
         _addSVGPanZoom(svgEl);
         _wireSVGHotspots(svgEl);
       } else {
